@@ -1,0 +1,11 @@
+## Ignore SGDK output files
+*.bin
+*.rom
+*.o
+
+
+## Ignore SGDK output dir
+
+out/
+
+
