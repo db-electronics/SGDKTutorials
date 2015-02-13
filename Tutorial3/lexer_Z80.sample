@@ -1,0 +1,40 @@
+;******************************************************************************
+; include
+;******************************************************************************
+                include "dbWaitMacros.i80"      ; wait macros
+                include "dbZ80macros.i80"       ; Z80 macro definition file
+                include "dbYM2612macros.i80"    ; YM2612 macro definition file
+
+;******************************************************************************
+; reset
+;******************************************************************************
+
+                org     $0000
+reset
+                di                              ; disable interrupts
+                ld      sp, STACK               ; setup stack pointer
+                im      $01                     ; set interrupt mode 1
+
+        ; start by clearing the command space
+        ; first word of command space = 0 indicates to 68k that we are not ready
+                xor     a                       ; clear a
+                ld      b, a                    ; clear b, counter = 256
+                ld      hl, COMMAND68K          ; point to beginning of comd space
+.clearCmd68k
+                ld     (hl), a                  ; clear memory location
+                inc     hl                      ; point to next memory location
+                djnz    .clearCmd68k            ; do it 256 times
+                
+        ; zero all pcm buffers with $80, DAC is unsigned
+                or      %10000000               ; load a with $80, PCM signed zero value
+                ld      hl, PCM0Buffer          ; point to PCM0 buffer start address
+.clearPCM0
+                ld      (hl), a                 ; clear memory location
+                inc     hl                      ; point to next memory location
+                djnz    .clearPCM0              ; do it 256 times
+
+        ; PCM1 buffer is +256 from PCM0, no need to reload hl
+.clearPCM1
+                ld      (hl), a                 ; clear memory location
+                inc     hl                      ; point to next memory location
+                djnz    .clearPCM1              ; do it 256 times
