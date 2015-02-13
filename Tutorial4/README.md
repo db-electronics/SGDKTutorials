@@ -1,4 +1,2 @@
-<h1>Tutorial 2</h1>
-Create a new SGDK project using Code::Blocks
+<h1>Tutorial 4</h1>
 
-http://www.db-elec.com/home/tutorials
