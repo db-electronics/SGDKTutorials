@@ -1,3 +1,29 @@
+
+COMMAND68K      EQU     $0100
+
+;******************************************************************************
+; define
+;******************************************************************************
+
+YMPORTA0        EQU     $4000           ; YM2612 port address 0
+YMPORTD0        EQU     $4001           ; YM2612 port data 0
+YMPORTA1        EQU     $4002           ; YM2612 port address 1
+YMPORTD1        EQU     $4003           ; YM2612 port data 1
+PSGPORT         EQU     $7F11           ; PSG port
+BANKREG         EQU     $6000           ; bank register
+BANKEDMEMORY    EQU     $8000           ; address of 32KB of 68K banked memory
+
+;******************************************************************************
+; macro
+;******************************************************************************
+                macro   wait60
+                ex      (sp),hl
+                ex      (sp),hl
+                jp      .thisWait
+.thisWait       inc     hl
+                dec     hl
+                endm
+
 ;******************************************************************************
 ; reset
 ;******************************************************************************
@@ -7,4 +33,100 @@ reset
                 di                              ; disable interrupts
                 ld      sp, $1FFF               ; setup stack pointer
                 im      $01                     ; set interrupt mode 1
-here            jp      here
+
+                xor     a                       ; clear a
+                ld      b, a                    ; clear b, counter = 256
+                ld      hl, COMMAND68K          ; point to cmd space
+.clearCmd68k
+                ld     (hl), a                  ; clear memory location
+                inc     hl                      ; point to next memory location
+                djnz    .clearCmd68k            ; do it 256 times
+
+.clearPSG
+                ld      hl, CLRTB               ; clear table
+                ld      de, PSGPORT             ; psg port is $7F11
+                xor     a
+                ld      c, a                    ; clear c
+                ld      b, 4                    ; load four bytes
+                ldir                            ; out and repeat
+
+                ei                              ; enable interrupts
+.done           jp      .done                   ; start main program
+
+CLRTB           defb    $9F, $BF, $DF, $FF
+
+;******************************************************************************
+; maskable interrupt vector
+;******************************************************************************
+
+                BLOCK   $0038-$, $FF
+interrupt
+        ; need to wait at least 180 cycles before re-enabling interrupts
+                wait60
+                wait60
+                wait60
+
+        ; modify sp to point to mainProgram when returning from interrupt
+                ld      hl, mainProgram         ; load hl with re-entry address
+                ex      (sp), hl                ; modify re-entry address, clever!
+
+                ei                              ; re-enable interrupts
+                ret                             ; return from interrupt
+
+;******************************************************************************
+; main
+;******************************************************************************
+
+                BLOCK   $0200-$, $FF
+;pseudo-code
+;
+;Wait for Vint
+;test command register
+;if (command == play tone) then
+;   get tone value
+;   output to psg
+;elsif (command == stop tone) then
+;   stop tone
+;end if
+;idle
+mainProgram
+                ld      hl, COMMAND68K          ; read command register
+                ld      de, PSGPORT             ; PSG output port
+                bit     7, (hl)                 ; test bit 7, if play tone
+                jp      z, stopTone             ; if 1, play tone
+.playTone
+                ; 10bit tone value is contained in COMMAND68K + 2, big endian (as per 68k)
+                inc     l
+                inc     l
+                ld      c, (hl)                 ; get msb of tone value
+                inc     l
+                ld      b, (hl)                 ; get lsb of tone value
+                ld      a, d                    ; lsb into a
+                and     a, $0F                  ; chop off top nibble
+                or      a, $80                  ; set bit 7, to write tone value into register 1
+                ld      (de), a                 ; output lsb + port address to PSG
+                ld      ixh, a
+                srl     b
+                srl     b
+                srl     b
+                srl     b                       ; lsb >> 4
+                ld      a, b                    ; a = lsb >> 4c
+                sll     c
+                sll     c
+                sll     c
+                sll     c                       ; msb << 4
+                or      c                       ; a |= msb << 4
+                and     a, $3F                  ; ensure top two bits are zero
+                ld      (de), a                 ; output to PSG
+                ld      ixl, a
+.done           jp      .done                   ; wait for VInt
+
+stopTone
+                ld      hl, CLRTB               ; clear table
+                ld      de, PSGPORT             ; psg port is $7F11
+                xor     a
+                ld      c, a                    ; clear c
+                ld      b, 4                    ; load four bytes
+                ldir                            ; out and repeat
+.done           jp      .done                   ; wait for VInt
+
