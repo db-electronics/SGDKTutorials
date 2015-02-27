@@ -92,28 +92,22 @@ interrupt
 ;******************************************************************************
 
                 BLOCK   $0200-$, $FF
-;pseudo-code
-;
-;Wait for Vint
-;test command register
-;if (command == play tone) then
-;   get tone value
-;   output to psg
-;elsif (command == stop tone) then
-;   stop tone
-;end if
-;idle
+
 mainProgram
-                ld      hl, COMMAND68K          ; read command register
+                ld      a, (COMMAND68K)         ; read command register
+                cp      $00                     ; test if zero
+                jp      nz, validCommand        ; if command != 0, process it
+.done           jp      .done                   ; wait for next VInt
+
+validCommand
                 ld      de, PSGPORT             ; PSG output port
-                bit     7, (hl)                 ; test bit 7, if play tone
-                jp      nz, stopTone            ; if 0, play tone
-.playTone
+                cp      $80                     ; test if negative, a still contains command
+                jp      nc, stopTone            ; if positive, play tone, else stop tone
+playTone
                 ; use PSGNOTETABLE to convert MIDI note # into PSG frequency value
-                ld      a, (hl)                 ; get the note#
+                ld      hl, PSGNOTEADDR         ; hl points to start of note table, 256 aligned
                 sub     45                      ; PSGNOTETABLE[0] = MIDI # 45
                 add     a, a                    ; each MIDI note occupies 2 bytes in PSGNOTETABLE, a*2
-                ld      hl, PSGNOTEADDR         ; hl points to start of note table, 256 aligned
                 ld      l, a                    ; a contains offset within table, hl now points to correct note
                 ld      a, (hl)                 ; get first byte value
                 or      PSGNOTEONCH1            ; or in channel 1 regiser address
@@ -122,19 +116,19 @@ mainProgram
                 ld      a, (hl)                 ; get second byte valye
                 ld      (de), a                 ; output to PSG
                 ; set volume to maximum for CH1
-                ld      a, $90                  ; CH1 max volume
+                ld      a, PSGATTNCH1           ; CH1 volume, label contains max value
                 ld      (de), a                 ; output to PSG
-.done           jp      .done                   ; wait for VInt
+                jp      clearCommand
 
-                ; stop tone kills all volume levels
+                ; stop tone reduces the volume level to zero
 stopTone
-                ld      hl, CLRTB               ; clear table
-                ld      de, PSGPORT             ; psg port is $7F11
+                ld      a, PSGATTNCH1 + $F      ; CH1 volume min value
+                ld      (de), a                 ; output to PSG
+clearCommand
+                ; clear command in RAM so we don't process it again at next VInt
                 xor     a
-                ld      c, a                    ; clear c
-                ld      b, 4                    ; load four bytes
-                ldir                            ; out and repeat
-.done           jp      .done                   ; wait for VInt
+                ld      (COMMAND68K), a
+.done           jp      .done                   ; wait for VIntc
 
 
                 BLOCK   PSGNOTEADDR-$, $FF
@@ -145,7 +139,6 @@ PSGNOTETABLE    ; starts at MIDI note # 45 = A2 - total 72 notes 144 bytes
     defb   $0F, $07, $07, $07, $01, $07, $0A, $06, $04, $06, $0F, $05, $09, $05, $04, $05, $00, $05, $0B, $04, $07, $04, $03, $04   ;A5(81) to G#6(92)
     defb   $0F, $03, $0B, $03, $08, $03, $05, $03, $02, $03, $0F, $02, $0C, $02, $0A, $02, $08, $02, $05, $02, $03, $02, $01, $02   ;A6(93) to G#7(104)
     defb   $0F, $01, $0D, $01, $0C, $01, $0A, $01, $09, $01, $07, $01, $06, $01, $05, $01, $04, $01, $02, $01, $01, $01, $00, $01   ;A7(105) to G#8(116)
-
 
                 ; ensure uniform file size, easier for loading
                 BLOCK   $2000-$, $FF

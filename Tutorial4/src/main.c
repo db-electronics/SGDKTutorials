@@ -13,13 +13,15 @@ void playTone(u8 tone, u16 stop);
 
 int main()
 {
+    u16 driverLength;
 
     //lowest midi note on PSG is 45, max is 116
     psgTone = PSGNOTEMIN;
 
     //load Z80 test driver, reset z80 when done
     Z80_init();
-    Z80_upload(0x0000, z80Test, 0x2000, 1);
+    driverLength = sizeof(z80Test);
+    Z80_upload(0x0000, z80Test, driverLength, 1);
 
     //init gamepad
     JOY_init();
