@@ -1,9 +1,13 @@
-
-COMMAND68K      EQU     $0100
+;******************************************************************************
+; name     z80Test.s80
+; author:  René Richard
+;******************************************************************************
 
 ;******************************************************************************
 ; define
 ;******************************************************************************
+
+COMMAND68K      EQU     $0100
 
 YMPORTA0        EQU     $4000           ; YM2612 port address 0
 YMPORTD0        EQU     $4001           ; YM2612 port data 0
@@ -12,6 +16,16 @@ YMPORTD1        EQU     $4003           ; YM2612 port data 1
 PSGPORT         EQU     $7F11           ; PSG port
 BANKREG         EQU     $6000           ; bank register
 BANKEDMEMORY    EQU     $8000           ; address of 32KB of 68K banked memory
+
+PSGNOTEADDR     EQU     $1F00           ; note address table start
+PSGNOTEONCH1    EQU     $80             ; CH1 frequency register
+PSGNOTEONCH2    EQU     $A0             ; CH2 frequency register
+PSGNOTEONCH3    EQU     $C0             ; CH3 frequency register
+PSGNOTENS       EQU     $E0             ; Noise control register
+PSGATTNCH1      EQU     $90             ; CH1 attenuation register
+PSGATTNCH2      EQU     $B0             ; CH2 attenuation register
+PSGATTNCH3      EQU     $D0             ; CH3 attenuation register
+PSGATTNNS       EQU     $F0             ; Noise attenuation register
 
 ;******************************************************************************
 ; macro
@@ -51,7 +65,7 @@ reset
                 ldir                            ; out and repeat
 
                 ei                              ; enable interrupts
-.done           jp      .done                   ; start main program
+.done           jp      .done                   ; wait for VInt
 
 CLRTB           defb    $9F, $BF, $DF, $FF
 
@@ -93,34 +107,26 @@ mainProgram
                 ld      hl, COMMAND68K          ; read command register
                 ld      de, PSGPORT             ; PSG output port
                 bit     7, (hl)                 ; test bit 7, if play tone
-                jp      z, stopTone             ; if 1, play tone
+                jp      nz, stopTone            ; if 0, play tone
 .playTone
-                ; 10bit tone value is contained in COMMAND68K + 2, big endian (as per 68k)
-                inc     l
-                inc     l
-                ld      c, (hl)                 ; get msb of tone value
-                inc     l
-                ld      b, (hl)                 ; get lsb of tone value
-                ld      a, d                    ; lsb into a
-                and     a, $0F                  ; chop off top nibble
-                or      a, $80                  ; set bit 7, to write tone value into register 1
-                ld      (de), a                 ; output lsb + port address to PSG
-                ld      ixh, a
-                srl     b
-                srl     b
-                srl     b
-                srl     b                       ; lsb >> 4
-                ld      a, b                    ; a = lsb >> 4c
-                sll     c
-                sll     c
-                sll     c
-                sll     c                       ; msb << 4
-                or      c                       ; a |= msb << 4
-                and     a, $3F                  ; ensure top two bits are zero
+                ; use PSGNOTETABLE to convert MIDI note # into PSG frequency value
+                ld      a, (hl)                 ; get the note#
+                sub     45                      ; PSGNOTETABLE[0] = MIDI # 45
+                add     a, a                    ; each MIDI note occupies 2 bytes in PSGNOTETABLE, a*2
+                ld      hl, PSGNOTEADDR         ; hl points to start of note table, 256 aligned
+                ld      l, a                    ; a contains offset within table, hl now points to correct note
+                ld      a, (hl)                 ; get first byte value
+                or      PSGNOTEONCH1            ; or in channel 1 regiser address
                 ld      (de), a                 ; output to PSG
-                ld      ixl, a
+                inc     l                       ; point to second byte of tone value
+                ld      a, (hl)                 ; get second byte valye
+                ld      (de), a                 ; output to PSG
+                ; set volume to maximum for CH1
+                ld      a, $90                  ; CH1 max volume
+                ld      (de), a                 ; output to PSG
 .done           jp      .done                   ; wait for VInt
 
+                ; stop tone kills all volume levels
 stopTone
                 ld      hl, CLRTB               ; clear table
                 ld      de, PSGPORT             ; psg port is $7F11
@@ -129,4 +135,18 @@ stopTone
                 ld      b, 4                    ; load four bytes
                 ldir                            ; out and repeat
 .done           jp      .done                   ; wait for VInt
+
+
+                BLOCK   PSGNOTEADDR-$, $FF
+PSGNOTETABLE    ; starts at MIDI note # 45 = A2 - total 72 notes 144 bytes
+    defb   $08, $3F, $0F, $3B, $09, $38, $07, $35, $07, $32, $09, $2F, $0F, $2C, $06, $2A, $00, $28, $0C, $25, $0A, $23, $0A, $21   ;A2(45) to G#3(56)
+    defb   $0C, $1F, $0F, $1D, $04, $1C, $0B, $1A, $03, $19, $0C, $17, $07, $16, $03, $15, $00, $14, $0E, $12, $0D, $11, $0D, $10   ;A3(57) to G#4(68)
+    defb   $0E, $0F, $0F, $0E, $02, $0E, $05, $0D, $09, $0C, $0E, $0B, $03, $0B, $09, $0A, $00, $0A, $07, $09, $0E, $08, $06, $08   ;A4(69) to G#5(80)
+    defb   $0F, $07, $07, $07, $01, $07, $0A, $06, $04, $06, $0F, $05, $09, $05, $04, $05, $00, $05, $0B, $04, $07, $04, $03, $04   ;A5(81) to G#6(92)
+    defb   $0F, $03, $0B, $03, $08, $03, $05, $03, $02, $03, $0F, $02, $0C, $02, $0A, $02, $08, $02, $05, $02, $03, $02, $01, $02   ;A6(93) to G#7(104)
+    defb   $0F, $01, $0D, $01, $0C, $01, $0A, $01, $09, $01, $07, $01, $06, $01, $05, $01, $04, $01, $02, $01, $01, $01, $00, $01   ;A7(105) to G#8(116)
+
+
+                ; ensure uniform file size, easier for loading
+                BLOCK   $2000-$, $FF
 
